@@ -2,8 +2,10 @@ import crypto from 'crypto';
 import MerkleTree from "merkletreejs";
 import cryptojs from 'crypto-js';
 
-
 class User {
+
+    static user_list = [];
+
     constructor(name, credits) {
         this.name = name;
         this.credits = credits;
@@ -21,28 +23,33 @@ class User {
         this.private_key = privateKey.toString();
         this.public_key = publicKey.toString();
 
+        console.log("name:", this.name, "credits:",this.credits);
+        // console.log("public key:", this.public_key);
+        // console.log("private key:", this.private_key);
 
-        console.log(this.name," public key is: ", this.public_key);
-        console.log(this.name," private key is: ", this.private_key);
-        console.log();
+        User.user_list.push(this);
     }
 
-    static getUser(public_key, user_list) {
+    static getUser(public_key) {
         let selected_user;
-        user_list.forEach(user => user.public_key===public_key ? selected_user = user : null)
+        User.user_list.forEach(user => user.public_key===public_key ? selected_user = user : null)
         return selected_user;
     }
 
     removeCoin(amount) {
+        console.log(this.name, "credits before transaction:", this.credits)
         this.credits = this.credits-amount;
+        console.log(this.name, "credits after transaction:", this.credits)
     }
 
     addCoin(amount) {
+        console.log(this.name, "credits before transaction:", this.credits)
         this.credits = this.credits+amount;
+        console.log(this.name, "credits after transaction:", this.credits)
     }
 
     verify(signature, transaction) {
-        if(this.credits<transaction.amount)
+        if(this.credits < transaction.amount)
             return false;
         const verifier = crypto.createVerify('RSA-SHA256');
         verifier.update(JSON.stringify(transaction))
@@ -61,11 +68,12 @@ class Transaction {
         this.sender = sender;
         this.receiver = receiver;
         this.amount = amount;
+        console.log("New transaction: sender:", User.getUser(this.sender).name,", receiver: ", User.getUser(this.receiver).name, ", amount", this.amount);
     }
 
     setUserCredits() {
-        User.getUser(this.sender,user_list).removeCoin(this.amount);
-        User.getUser(this.receiver,user_list).addCoin(this.amount);
+        User.getUser(this.sender).removeCoin(this.amount);
+        User.getUser(this.receiver).addCoin(this.amount);
     }
 
 }
@@ -85,10 +93,11 @@ class BlockChain {
             hash: hash,
             timestamp: timestamp
         })
+        console.log(this.getLastBlock());
     }
 
     generateNonceHashAndCheck(timestamp,hash) {
-        console.log("_____ Generate nonce _____")
+        console.log("Generate nonce")
         while(true) {
             let nonce = this.generateNonce();
             if(this.checkHash(this.generateHashOfBlock(hash, timestamp, nonce)))
@@ -124,26 +133,31 @@ class BlockChain {
             hash: hash,
             timestamp: timestamp
         })
+        console.log(this.getLastBlock());
     }
 
     getLastBlock() {
         return this.blockChain[this.blockChain.length-1];
     }
+
+    static createMerkleTree(leaves) {
+        console.log("_____ Create Merkle tree _____")
+        leaves.map(x => cryptojs.SHA256(x));
+        const tree = new MerkleTree.MerkleTree(leaves, cryptojs.SHA256);
+        return tree.getRoot().toString('hex');
+    }
 }
 
 
+console.log("_____ Add first element of block chain _____")
+let blockChain = new BlockChain()
+
 console.log("_____ Generate users _____");
 
-let user_list = [];
 const user1 = new User('user1', 50);
 const user2 = new User('user2', 100);
 const user3 = new User('user3', 150);
 const user4 = new User('user4', 200);
-
-user_list.push(user1);
-user_list.push(user2);
-user_list.push(user3);
-user_list.push(user4);
 
 console.log("_____ Create transactions _____");
 
@@ -160,7 +174,6 @@ const sign3 = user3.sign(transaction3);
 const sign4 = user4.sign(transaction4);
 
 console.log("_____ Verify signatures _____");
-console.log(user_list);
 const verify1 = user1.verify(sign1, transaction1);
 const verify2 = user2.verify(sign2, transaction2);
 const verify3 = user3.verify(sign3, transaction3);
@@ -183,25 +196,36 @@ if(verify4) {
     transaction4.setUserCredits()
     leaves.push(sign4);
 }
-console.log(user_list);
-console.log("_____ Create Merkle tree _____")
 
-leaves.map(x => cryptojs.SHA256(x));
-const tree = new MerkleTree.MerkleTree(leaves, cryptojs.SHA256);
-const root = tree.getRoot().toString('hex');
+let root = BlockChain.createMerkleTree(leaves)
 
-// const leaf = cryptojs.SHA256(sign1);
-// const proof = tree.getProof(leaf);
-// console.log(tree.verify(proof, leaf, root)); // true
-// console.log(root);
-
-
-
-console.log("_____ Add first element of block chain _____")
-let blockChain = new BlockChain()
 
 console.log("_____ Add next element of block chain _____")
 blockChain.addBlock(root);
 console.log(blockChain);
-console.log(blockChain.blockChain.length);
+
+console.log("_____ Bad transaction _____")
+
+const transaction5 = new Transaction(user1.public_key, user2.public_key, 300);
+
+const sign5 = user1.sign(transaction5);
+
+const verify5 = user1.verify(sign5, transaction5);
+
+leaves = [];
+if(verify5) {
+    transaction1.setUserCredits()
+    leaves.push(sign5)
+}
+else {
+    console.log("Failed verification");
+}
+
+if(leaves.length > 0) {
+    BlockChain.createMerkleTree(leaves)
+    console.log("_____ Add next element of block chain _____")
+    blockChain.addBlock(root);
+    console.log(blockChain);
+}
+
 
